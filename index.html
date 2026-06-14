@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>CanCash</title>
+<style>
+/* ─────────────────────────────────────────────
+   DESIGN-TOKEN-SYSTEM
+   Inspireret af plakaten: betongrå + tæt mørkegrønt
+   + diffust hvidt ovenlys. Glassmorphism oven på
+   dette giver en "natur tager bygningen tilbage"-stemning.
+───────────────────────────────────────────── */
+:root {
+  /* Farvepalette fra billedet */
+  --c-bg-dark:    #0e1a13;   /* Dybeste skygge bag planter */
+  --c-bg-mid:     #1b2d20;   /* Midterlag, beton + løv */
+  --c-green-deep: #2d4a35;   /* Mørkegrøn fra bladene */
+  --c-green-mid:  #3d6648;   /* Grønne stammer */
+  --c-green-pale: #7aab82;   /* Lyseste løv i ovenlys */
+  --c-stone:      #8a9e8d;   /* Betonsøjlerne, grågrøn */
+  --c-mist:       #b8cbb4;   /* Det diffuse ovenlys ovenfra */
+  --c-accent:     #a8d5a2;   /* Frisk, lys grøn – primær accent */
+  --c-gold:       #c9a96e;   /* Rust/ler-toner fra sten */
+  --c-danger:     #c97a6e;
+
+  /* Glas-effekter */
+  --glass:        rgba(14, 26, 19, 0.55);
+  --glass-light:  rgba(184, 203, 180, 0.08);
+  --glass-border: rgba(184, 203, 180, 0.18);
+  --glass-shine:  rgba(184, 203, 180, 0.10);
+
+  /* Typografi */
+  --font-display: 'Georgia', 'Times New Roman', serif;
+  --font-body:    'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  /* Geometri */
+  --r-lg: 18px;
+  --r-md: 12px;
+  --r-sm:  7px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─────────────────────────────────────────────
+   RESET
+───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+button { cursor: pointer; font-family: var(--font-body); }
+
+/* ─────────────────────────────────────────────
+   BAGGRUND
+   Gradient der efterligner billedets tonalitet:
+   mørkt forgrundsjord → diffust ovenlys fra glasloftet.
+───────────────────────────────────────────── */
+body {
+  font-family: var(--font-body);
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%,   rgba(184,203,180,0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 80% at 20% 100%,  rgba(61,102,72,0.35)   0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 80% 80%,   rgba(45,74,53,0.40)    0%, transparent 55%),
+    linear-gradient(175deg, #111d15 0%, #1b2d20 45%, #0e1a13 100%);
+  background-attachment: fixed;
+  color: var(--c-mist);
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* Subtil teksturoverlay (simulerer betonkornets granulering) */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ─────────────────────────────────────────────
+   APP-SHELL
+───────────────────────────────────────────── */
+#app {
+  position: relative; z-index: 1;
+  max-width: 430px;
+  margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────
+   KAMERA-LAG (under alt andet)
+   Vises kun i scan-tilstand.
+───────────────────────────────────────────── */
+#camera-layer {
+  display: none;
+  position: fixed; inset: 0;
+  z-index: 2;
+  background: #000;
+}
+#camera-layer.active { display: block; }
+
+#camera-video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  opacity: 0.85;
+}
+
+/* Frys-overlay når kameraet "tager billede" */
+#camera-freeze {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s;
+}
+#camera-freeze.flash { opacity: 1; }
+
+/* ─────────────────────────────────────────────
+   KAMERA UI-OVERLAY (scanner-ramme, knapper)
+───────────────────────────────────────────── */
+#camera-ui {
+  display: none;
+  position: fixed; inset: 0;
+  z-index: 3;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 60px 24px 48px;
+}
+#camera-ui.active { display: flex; }
+
+/* Scannerramme med hjørnemarkeringer */
+.scan-frame {
+  width: min(72vw, 280px);
+  aspect-ratio: 1;
+  position: relative;
+}
+.scan-frame::before, .scan-frame::after,
+.scan-frame .corner-br, .scan-frame .corner-tl-inner {
+  content: '';
+  position: absolute;
+  width: 28px; height: 28px;
+  border-color: var(--c-accent);
+  border-style: solid;
+}
+.scan-frame::before  { top: 0; left: 0;  border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+.scan-frame::after   { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+.scan-frame .corner-br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+.scan-frame .corner-tl-inner { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+
+/* Scanningslinje */
+.scan-line {
+  position: absolute;
+  left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--c-accent), transparent);
+  box-shadow: 0 0 10px var(--c-accent);
+  animation: scanMove 2s ease-in-out infinite;
+}
+@keyframes scanMove { 0%,100% { top: 5%; } 50% { top: 90%; } }
+
+.scan-hint {
+  font-size: 0.8rem;
+  color: rgba(184,203,180,0.7);
+  letter-spacing: 0.5px;
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* Bekræft-scanning-knap i kameratilstand */
+#btn-confirm-scan {
+  padding: 16px 40px;
+  background: var(--c-accent);
+  color: var(--c-bg-dark);
+  border: none;
+  border-radius: 50px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  box-shadow: 0 4px 24px rgba(168,213,162,0.35);
+  transition: transform 0.15s var(--ease), opacity 0.15s;
+  display: flex; align-items: center; gap: 8px;
+}
+#btn-confirm-scan:active { transform: scale(0.96); opacity: 0.85; }
+
+/* Luk-kamera-knap */
+#btn-close-camera {
+  position: absolute;
+  top: 52px; right: 24px;
+  width: 40px; height: 40px;
+  background: rgba(14,26,19,0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(8px);
+}
+#btn-close-camera svg { color: var(--c-mist); }
+
+/* Spinner oven på kamera under "behandling" */
+#scan-spinner {
+  display: none;
+  position: fixed; inset: 0;
+  z-index: 4;
+  background: rgba(14,26,19,0.7);
+  backdrop-filter: blur(6px);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 20px;
+}
+#scan-spinner.active { display: flex; }
+
+.spinner-ring {
+  width: 56px; height: 56px;
+  border: 3px solid rgba(168,213,162,0.2);
+  border-top-color: var(--c-accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner-label {
+  font-size: 0.85rem;
+  color: var(--c-stone);
+  letter-spacing: 0.5px;
+}
+
+/* ─────────────────────────────────────────────
+   HEADER
+───────────────────────────────────────────── */
+header {
+  position: relative; z-index: 10;
+  padding: 52px 20px 12px;
+  display: flex; justify-content: space-between; align-items: center;
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: 0.5px;
+  color: var(--c-mist);
+  font-weight: 400;
+}
+.wordmark strong { color: var(--c-accent); font-weight: 700; }
+
+/* Point-chip i header */
+.pts-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 14px 5px 10px;
+  background: var(--glass-light);
+  border: 1px solid var(--glass-border);
+  border-radius: 50px;
+  backdrop-filter: blur(8px);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--c-accent);
+}
+
+/* ─────────────────────────────────────────────
+   SEKTIONER
+───────────────────────────────────────────── */
+.section {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+  position: relative; z-index: 10;
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-border) transparent;
+}
+.section.active { display: block; }
+
+/* ─────────────────────────────────────────────
+   GLAS-KORT (genanvendelig komponent)
+───────────────────────────────────────────── */
+.card {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 2px 0 inset var(--glass-shine),
+    0 8px 32px rgba(0,0,0,0.35);
+}
+
+/* ─────────────────────────────────────────────
+   SEKTION: SCAN (forside inden kamera åbnes)
+───────────────────────────────────────────── */
+.scan-idle {
+  padding: 28px 24px 32px;
+  text-align: center;
+  margin-bottom: 14px;
+}
+.scan-idle h1 {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 400;
+  color: var(--c-mist);
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+.scan-idle p { font-size: 0.88rem; color: var(--c-stone); line-height: 1.5; }
+
+/* Primær scan-knap */
+.btn-primary {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%;
+  padding: 17px;
+  background: var(--c-accent);
+  color: var(--c-bg-dark);
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  box-shadow: 0 4px 20px rgba(168,213,162,0.25);
+  transition: transform 0.15s var(--ease), box-shadow 0.15s;
+  margin-top: 12px;
+}
+.btn-primary:active { transform: scale(0.97); box-shadow: none; }
+
+/* Feedback-badge efter scan */
+#scan-result {
+  padding: 16px 18px;
+  display: flex; align-items: center; gap: 12px;
+  opacity: 0; transform: translateY(6px);
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+#scan-result.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+.result-pts {
+  font-size: 1.5rem; font-weight: 800;
+  color: var(--c-accent);
+  min-width: 48px; text-align: center;
+}
+.result-text { font-size: 0.9rem; color: var(--c-mist); line-height: 1.4; }
+.result-name { font-weight: 600; }
+
+/* ─────────────────────────────────────────────
+   SEKTION: DASHBOARD
+───────────────────────────────────────────── */
+.balance-card {
+  padding: 36px 24px 28px;
+  text-align: center;
+  margin-bottom: 14px;
+}
+.bal-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--c-stone);
+  margin-bottom: 10px;
+}
+.bal-number {
+  font-family: var(--font-display);
+  font-size: 4.5rem;
+  font-weight: 700;
+  color: var(--c-accent);
+  line-height: 1;
+}
+.bal-unit { font-size: 0.85rem; color: var(--c-stone); margin-top: 6px; }
+
+.stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px; margin-bottom: 14px;
+}
+.stat-card {
+  padding: 22px 16px;
+  text-align: center;
+}
+.stat-n { font-size: 2rem; font-weight: 800; color: var(--c-accent); }
+.stat-l { font-size: 0.75rem; color: var(--c-stone); margin-top: 4px; }
+
+.next-card { padding: 18px 20px; }
+.next-card .next-lbl {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--c-stone); margin-bottom: 8px;
+}
+.next-card .next-text { font-size: 0.88rem; color: var(--c-mist); line-height: 1.5; }
+.next-card .next-text strong { color: var(--c-accent); }
+
+/* ─────────────────────────────────────────────
+   SEKTION: BELØNNINGER
+───────────────────────────────────────────── */
+.section-lbl {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--c-stone); margin: 14px 0 10px;
+}
+
+.coupon-list { display: flex; flex-direction: column; gap: 10px; }
+
+.coupon-card {
+  padding: 16px 16px;
+  display: flex; align-items: center; gap: 14px;
+}
+.coupon-icon-wrap {
+  width: 44px; height: 44px; flex-shrink: 0;
+  background: var(--glass-light);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-accent);
+}
+.coupon-body { flex: 1; min-width: 0; }
+.coupon-title { font-size: 0.9rem; font-weight: 600; color: var(--c-mist); margin-bottom: 2px; }
+.coupon-desc  { font-size: 0.75rem; color: var(--c-stone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coupon-cost  { font-size: 0.78rem; color: var(--c-gold); margin-top: 3px; font-weight: 600; }
+
+.btn-redeem {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  font-size: 0.78rem; font-weight: 700;
+  border: none;
+  transition: transform 0.12s, opacity 0.12s;
+  white-space: nowrap;
+}
+.btn-redeem:active { transform: scale(0.94); }
+.btn-available { background: var(--c-accent); color: var(--c-bg-dark); }
+.btn-used      { background: var(--glass-light); color: var(--c-stone); border: 1px solid var(--glass-border); cursor: default; }
+.btn-locked    { background: rgba(201,122,110,0.12); color: var(--c-danger); border: 1px solid rgba(201,122,110,0.2); cursor: not-allowed; }
+
+/* ─────────────────────────────────────────────
+   SEKTION: HISTORIK
+───────────────────────────────────────────── */
+.history-list { display: flex; flex-direction: column; gap: 8px; }
+
+.history-item {
+  padding: 14px 16px;
+  display: flex; align-items: center; gap: 12px;
+}
+.hist-icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  background: var(--glass-light);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-green-pale);
+}
+.hist-body { flex: 1; }
+.hist-name { font-size: 0.88rem; font-weight: 600; color: var(--c-mist); }
+.hist-time { font-size: 0.72rem; color: var(--c-stone); margin-top: 2px; }
+.hist-pts  { font-size: 0.9rem; font-weight: 700; color: var(--c-accent); }
+
+.empty-state { text-align: center; padding: 60px 24px; color: var(--c-stone); }
+.empty-state svg { opacity: 0.3; margin-bottom: 16px; }
+.empty-state p { font-size: 0.88rem; line-height: 1.6; }
+
+/* ─────────────────────────────────────────────
+   BUNDNAVIGATION
+───────────────────────────────────────────── */
+nav {
+  flex-shrink: 0;
+  position: relative; z-index: 10;
+  display: flex; justify-content: space-around;
+  padding: 10px 8px 28px;
+  background: rgba(10, 18, 13, 0.80);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--glass-border);
+}
+.nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: none; border: none;
+  color: var(--c-stone);
+  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  transition: color 0.2s, background 0.2s;
+}
+.nav-btn svg { transition: color 0.2s; }
+.nav-btn.active { color: var(--c-accent); background: rgba(168,213,162,0.08); }
+.nav-btn.active svg { color: var(--c-accent); }
+
+/* ─────────────────────────────────────────────
+   TOAST
+───────────────────────────────────────────── */
+#toast {
+  position: fixed; top: 20px; left: 50%;
+  transform: translateX(-50%) translateY(-70px);
+  background: rgba(11, 20, 14, 0.92);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(16px);
+  color: var(--c-mist);
+  padding: 11px 22px;
+  border-radius: 50px;
+  font-size: 0.85rem; font-weight: 600;
+  z-index: 999;
+  transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  white-space: nowrap;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ─────────────────────────────────────────────
+   REDUCED MOTION
+───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- Toast-besked -->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- ── KAMERA-LAG ────────────────────────────── -->
+<div id="camera-layer">
+  <video id="camera-video" autoplay playsinline muted></video>
+  <div id="camera-freeze"></div>
+</div>
+
+<!-- ── KAMERA-UI (overlay ovenpå video) ─────── -->
+<div id="camera-ui">
+  <button id="btn-close-camera" onclick="closeCamera()" aria-label="Luk kamera">
+    <!-- Ikon: X -->
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  </button>
+
+  <!-- Scanner-ramme -->
+  <div class="scan-frame">
+    <div class="scan-line"></div>
+    <div class="corner-br"></div>
+    <div class="corner-tl-inner"></div>
+  </div>
+  <p class="scan-hint">Hold stregkoden inden for rammen</p>
+
+  <!-- Bekræft-knap -->
+  <button id="btn-confirm-scan" onclick="confirmScan()">
+    <!-- Ikon: Barcode -->
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14"/>
+    </svg>
+    Scan produkt
+  </button>
+</div>
+
+<!-- ── BEHANDLINGS-SPINNER ──────────────────── -->
+<div id="scan-spinner">
+  <div class="spinner-ring"></div>
+  <p class="spinner-label">Genkender produkt…</p>
+</div>
+
+<!-- ── APP-SHELL ─────────────────────────────── -->
+<div id="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="wordmark">Can<strong>Cash</strong></div>
+    <div class="pts-chip">
+      <!-- Ikon: Stjerne/mønt -->
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--c-accent)" stroke="none">
+        <path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/>
+      </svg>
+      <span id="header-pts">0</span> pt
+    </div>
+  </header>
+
+  <!-- ── SCAN-SEKTION ──────────────────────────── -->
+  <section id="section-scan" class="section active">
+
+    <div class="card scan-idle">
+      <h1>Scan en dåse,<br>reducer madspild</h1>
+      <p>Hvert produkt du afleverer giver 10 point mod rabatter hos lokale butikker.</p>
+      <button class="btn-primary" onclick="openCamera()">
+        <!-- Ikon: Kamera -->
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        Åbn kamera og scan
+      </button>
+    </div>
+
+    <!-- Scanningsresultat (vises kortvarigt efter scan) -->
+    <div class="card" id="scan-result">
+      <div class="result-pts">+10</div>
+      <div class="result-text">
+        <div class="result-name" id="result-product-name">–</div>
+        <div>scannet og registreret</div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ── DASHBOARD-SEKTION ─────────────────────── -->
+  <section id="section-dashboard" class="section">
+
+    <div class="card balance-card">
+      <div class="bal-label">Din saldo</div>
+      <div class="bal-number" id="dash-pts">0</div>
+      <div class="bal-unit">point</div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="card stat-card">
+        <div class="stat-n" id="stat-cans">0</div>
+        <div class="stat-l">Dåser scannet</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-n" id="stat-coupons">0</div>
+        <div class="stat-l">Kuponer indløst</div>
+      </div>
+    </div>
+
+    <div class="next-lbl section-lbl">Næste mål</div>
+    <div class="card next-card" id="next-card">
+      <div class="next-lbl">Næste belønning</div>
+      <div class="next-text" id="next-text">Scanner du bare én dåse mere, er du nærmere dit mål.</div>
+    </div>
+
+  </section>
+
+  <!-- ── BELØNNINGS-SEKTION ────────────────────── -->
+  <section id="section-rewards" class="section">
+    <div class="section-lbl">Tilgængelige kuponer</div>
+    <div class="coupon-list" id="coupon-list"></div>
+  </section>
+
+  <!-- ── HISTORIK-SEKTION ──────────────────────── -->
+  <section id="section-history" class="section">
+    <div class="section-lbl">Scanningshistorik</div>
+    <div class="history-list" id="history-list"></div>
+  </section>
+
+  <!-- BUNDNAVIGATION -->
+  <nav>
+    <button class="nav-btn active" id="nav-scan" onclick="navigate('scan')">
+      <!-- Ikon: Kamera -->
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      Scan
+    </button>
+    <button class="nav-btn" id="nav-dashboard" onclick="navigate('dashboard')">
+      <!-- Ikon: Graf-bars -->
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/>
+      </svg>
+      Saldo
+    </button>
+    <button class="nav-btn" id="nav-rewards" onclick="navigate('rewards')">
+      <!-- Ikon: Tag/label -->
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+        <line x1="7" y1="7" x2="7.01" y2="7"/>
+      </svg>
+      Rabatter
+    </button>
+    <button class="nav-btn" id="nav-history" onclick="navigate('history')">
+      <!-- Ikon: Liste/ur -->
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      Historik
+    </button>
+  </nav>
+
+</div><!-- /#app -->
+
+<script>
+/* ═══════════════════════════════════════════════
+   DATA: PRODUKTLISTE
+   ─────────────────────────────────────────────
+   HER KAN DU TILRETTE PRODUKTNAVNENE.
+   Tilføj eller fjern linjer i dette array for at
+   styre hvilke produkter der "scannes" tilfældigt.
+═══════════════════════════════════════════════ */
+const PRODUCTS = [
+  'Økologiske kidneybønner',
+  'Tomatsuppe på dåse',
+  'Linsegryde med grøntsager',
+  'Kikærter i lage',
+  'Grøn ærtesuppe',
+  'Majs fra Mexico',
+  'Hakkede tomater',
+  'Kokosmælk',
+  'Røde bønner',
+  'Grøntsagsfond',
+  'Hvide bønner i tomat',
+  'Appelsinbåde i sirup',
+  'Persiske linser',
+  'Dampet spinat',
+  'Artiskokhjerter',
+];
+
+/* ═══════════════════════════════════════════════
+   DATA: KUPONER
+   ─────────────────────────────────────────────
+   Tilpas pris (cost) og tekst her.
+   id skal være unikt – brug det som nøgle.
+═══════════════════════════════════════════════ */
+const COUPONS = [
+  { id: 'netto10',   cost: 50,  title: '10% rabat i Netto',       desc: 'Gælder alle varer' },
+  { id: 'kaffe',     cost: 30,  title: 'Gratis kaffe hos 7-Eleven', desc: 'Vælg selv størrelse' },
+  { id: 'salling15', cost: 100, title: '15% rabat i Salling',      desc: 'I alle afdelinger' },
+  { id: 'meny20',    cost: 80,  title: '20 kr. af i Meny',         desc: 'Gælder køddisken' },
+  { id: 'bio',       cost: 180, title: 'Bio: betal for én, tag to', desc: 'Hverdage i SF Bio' },
+  { id: 'fakta5',    cost: 25,  title: '5 kr. rabat i Coop',       desc: 'Ingen minimumsbeløb' },
+];
+
+/* ═══════════════════════════════════════════════
+   STATE OG PERSISTENS
+═══════════════════════════════════════════════ */
+let state = {
+  points:       0,
+  cansScanned:  0,
+  couponsSaved: 0,
+  usedCoupons:  {},   // { couponId: true }
+  history:      [],   // [{ name, time, pts }]
+};
+
+function saveState()  { localStorage.setItem('cancash_v2', JSON.stringify(state)); }
+function loadState()  {
+  try {
+    const raw = localStorage.getItem('cancash_v2');
+    if (raw) state = { ...state, ...JSON.parse(raw) };
+  } catch(e) {}
+}
+
+/* ═══════════════════════════════════════════════
+   HJÆLPEFUNKTIONER
+═══════════════════════════════════════════════ */
+
+/** Returnerer et tilfældigt produkt fra PRODUCTS-listen */
+function randomProduct() {
+  return PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
+}
+
+/** Opdaterer alle steder der viser point-balance */
+function syncBalanceUI() {
+  document.getElementById('header-pts').textContent  = state.points;
+  document.getElementById('dash-pts').textContent    = state.points;
+}
+
+/** Viser en kortvarig besked øverst på skærmen */
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+/* ═══════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════ */
+function navigate(page) {
+  /* Stop kameraet hvis man forlader scan-siden */
+  if (page !== 'scan') closeCamera();
+
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`section-${page}`).classList.add('active');
+  document.getElementById(`nav-${page}`).classList.add('active');
+
+  /* Opdater sektions-specifikt indhold */
+  if (page === 'dashboard') renderDashboard();
+  if (page === 'rewards')   renderCoupons();
+  if (page === 'history')   renderHistory();
+}
+
+/* ═══════════════════════════════════════════════
+   KAMERA-LOGIK
+═══════════════════════════════════════════════ */
+let cameraStream = null;  /* Holder reference til aktiv stream */
+
+/** Åbner kameraet og viser viewfinder */
+async function openCamera() {
+  try {
+    /* Forsøg at bruge bagkamera på mobil, ellers front-kamera */
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
+      audio: false,
+    });
+    document.getElementById('camera-video').srcObject = cameraStream;
+    document.getElementById('camera-layer').classList.add('active');
+    document.getElementById('camera-ui').classList.add('active');
+  } catch (err) {
+    /* Ingen kameratilladelse – vis toast og scan alligevel */
+    showToast('Kameraadgang afvist – simulerer scanning');
+    runScanLogic();
+  }
+}
+
+/** Lukker kameraet og frigiver ressourcer */
+function closeCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  document.getElementById('camera-video').srcObject = null;
+  document.getElementById('camera-layer').classList.remove('active');
+  document.getElementById('camera-ui').classList.remove('active');
+}
+
+/** Udføres når brugeren trykker "Scan produkt" i kameratilstand */
+function confirmScan() {
+  /* 1. Frys-flash */
+  const freeze = document.getElementById('camera-freeze');
+  freeze.classList.add('flash');
+  setTimeout(() => freeze.classList.remove('flash'), 160);
+
+  /* 2. Skjul kamera-UI og vis spinner */
+  document.getElementById('camera-ui').classList.remove('active');
+  document.getElementById('scan-spinner').classList.add('active');
+
+  /* 3. Simuler behandlingstid (1,2 sek.) */
+  setTimeout(() => {
+    document.getElementById('scan-spinner').classList.remove('active');
+    closeCamera();
+    runScanLogic();
+  }, 1200);
+}
+
+/** Kerner scan-logikken: tilføj point, gem, vis feedback */
+function runScanLogic() {
+  const pts     = 10;  /* Point pr. scanning – let at ændre */
+  const product = randomProduct();
+
+  /* Opdater state */
+  state.points      += pts;
+  state.cansScanned += 1;
+  state.history.unshift({
+    name: product,
+    time: new Date().toLocaleString('da-DK', { dateStyle: 'short', timeStyle: 'short' }),
+    pts,
+  });
+  saveState();
+  syncBalanceUI();
+
+  /* Vis resultat-kort */
+  document.getElementById('result-product-name').textContent = product;
+  const resultEl = document.getElementById('scan-result');
+  resultEl.classList.add('show');
+  setTimeout(() => resultEl.classList.remove('show'), 4000);
+
+  showToast(`+${pts} point — ${product}`);
+}
+
+/* ═══════════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════════ */
+function renderDashboard() {
+  document.getElementById('stat-cans').textContent    = state.cansScanned;
+  document.getElementById('stat-coupons').textContent = state.couponsSaved;
+
+  /* Find billigste kupon brugeren endnu ikke kan hente */
+  const next = COUPONS
+    .filter(c => !state.usedCoupons[c.id] && c.cost > state.points)
+    .sort((a, b) => a.cost - b.cost)[0];
+
+  const textEl = document.getElementById('next-text');
+  if (next) {
+    const needed = next.cost - state.points;
+    textEl.innerHTML = `<strong>${next.title}</strong> — du mangler <strong>${needed} point</strong> (ca. ${Math.ceil(needed / 10)} dåser).`;
+  } else {
+    textEl.innerHTML = 'Du kan indløse alle tilgængelige kuponer nu.';
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   KUPONER
+═══════════════════════════════════════════════ */
+
+/** SVG-ikon til kupon-kortet */
+function couponIcon(id) {
+  const icons = {
+    netto10:   `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`,
+    kaffe:     `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>`,
+    salling15: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
+    meny20:    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg>`,
+    bio:       `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>`,
+    fakta5:    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+  };
+  return icons[id] || icons['salling15'];
+}
+
+function renderCoupons() {
+  document.getElementById('coupon-list').innerHTML = COUPONS.map(c => {
+    const used      = !!state.usedCoupons[c.id];
+    const canAfford = state.points >= c.cost;
+    let btnClass, btnLabel, disabled;
+
+    if (used)           { btnClass = 'btn-used';      btnLabel = 'Indløst'; disabled = true; }
+    else if (canAfford) { btnClass = 'btn-available';  btnLabel = 'Hent';   disabled = false; }
+    else                { btnClass = 'btn-locked';     btnLabel = `−${c.cost - state.points} pt`; disabled = true; }
+
+    return `
+      <div class="card coupon-card">
+        <div class="coupon-icon-wrap">${couponIcon(c.id)}</div>
+        <div class="coupon-body">
+          <div class="coupon-title">${c.title}</div>
+          <div class="coupon-desc">${c.desc}</div>
+          <div class="coupon-cost">${c.cost} point</div>
+        </div>
+        <button class="btn-redeem ${btnClass}"
+          ${disabled ? 'disabled' : `onclick="redeemCoupon('${c.id}')"`}>
+          ${btnLabel}
+        </button>
+      </div>`;
+  }).join('');
+}
+
+function redeemCoupon(id) {
+  const c = COUPONS.find(x => x.id === id);
+  if (!c || state.points < c.cost) return;
+  state.points             -= c.cost;
+  state.usedCoupons[id]     = true;
+  state.couponsSaved        += 1;
+  saveState();
+  syncBalanceUI();
+  renderCoupons();
+  showToast(`Kupon gemt: ${c.title}`);
+}
+
+/* ═══════════════════════════════════════════════
+   HISTORIK
+═══════════════════════════════════════════════ */
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  if (!state.history.length) {
+    el.innerHTML = `
+      <div class="empty-state">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <p>Ingen dåser scannet endnu.<br>Gå til Scan for at starte.</p>
+      </div>`;
+    return;
+  }
+  el.innerHTML = state.history.map(item => `
+    <div class="card history-item">
+      <div class="hist-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14"/>
+        </svg>
+      </div>
+      <div class="hist-body">
+        <div class="hist-name">${item.name}</div>
+        <div class="hist-time">${item.time}</div>
+      </div>
+      <div class="hist-pts">+${item.pts}</div>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════
+   OPSTART
+═══════════════════════════════════════════════ */
+(function init() {
+  loadState();
+  syncBalanceUI();
+})();
+</script>
+</body>
+</html>
